@@ -1,3 +1,5 @@
+import os
+
 import tempfile
 import streamlit as st
 
@@ -18,19 +20,18 @@ MODEL_NAME = "llama3"
 
 
 def build_vectorstore_from_files(uploaded_files):
-    """Prend une liste de fichiers (PDF/MD), extrait et fusionne tous leurs morceaux."""
     if not uploaded_files:
         raise ValueError("No files provided.")
     
     tous_les_chunks = []
     
-
     for uploaded_file in uploaded_files:
-        nom_fichier = uploaded_file.name
-        extension = nom_fichier.split(".")[-1].lower()
+        # On sauvegarde le VRAI nom d'origine (ex: ENSI SY...ic (1).pdf)
+        vrai_nom_fichier = uploaded_file.name
+        extension = vrai_nom_fichier.split(".")[-1].lower()
         
         if extension not in ["pdf", "md"]:
-            st.warning(f"⚠️ Format ignoré pour le fichier {nom_fichier} (uniquement PDF et MD).")
+            st.warning(f"⚠️ Format ignoré pour le fichier {vrai_nom_fichier}.")
             continue
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{extension}") as tmp:
@@ -53,10 +54,15 @@ def build_vectorstore_from_files(uploaded_files):
         )
         chunks = splitter.split_documents(docs)
         
+        # --- CORRECTION ICI ---
+        # Pour chaque morceau découpé, on force la métadonnée 'source' à prendre le vrai nom
+        for chunk in chunks:
+            chunk.metadata["source"] = vrai_nom_fichier
+        
         tous_les_chunks.extend(chunks)
 
     if not tous_les_chunks:
-        raise ValueError("No chunks could be extracted from any of the uploaded files.")
+        raise ValueError("No chunks could be extracted.")
     
     vectordb = Chroma.from_documents(
         documents=tous_les_chunks,
@@ -93,7 +99,6 @@ def make_rag_chain(vectordb, k: int, answer_style: str):
             return "No relevant context found in the document."
         return "\n\n-----\n\n".join(d.page_content for d in docs)
     
-    # Modèle de consigne stricte imposé au LLM
     prompt = ChatPromptTemplate.from_template(
         """You are a helpful assistant that answers questions based ONLY on the given PDF.
 If the answer is not clearly in the PDF, say:
@@ -222,9 +227,12 @@ def main():
                     docs = retriever.invoke(question)
                     sources = []
                     for d in docs:
+                        nom_fichier = d.metadata.get("source", "Unknown")
+                        
                         sources.append(
                             {
-                                "page": d.metadata.get("page", "Unknown"),
+                                "fichier": nom_fichier,
+                                "page": d.metadata.get("page", 0) + 1,
                                 "snippet": d.page_content[:400] + ("..." if len(d.page_content) > 400 else ""),
                             }
                         )
@@ -234,18 +242,18 @@ def main():
             except Exception as e:
                 st.error(f"Error while generating answer: {e}")  
 
-        # Affichage du Chat
         for item in reversed(st.session_state.chat_history):
             with st.chat_message("user"):
                 st.markdown(item["q"])  
             with st.chat_message("assistant"):
                 st.markdown(item["a"])  
                 if item["sources"]: 
-                    with st.expander("View sources from PDF"):
+                    with st.expander("🔍 Voir les sources documentaires utilisées"):
                         for i, s in enumerate(item["sources"], start=1):
                             st.markdown(
-                                f"**Source {i}** - Page `{s['page']}`\n\n"
-                                f"{s['snippet']}\n"
+                                f"**Source {i} :** 📄 Fichier : `{s['fichier']}` | 📖 Page : `{s['page']}`\n\n"
+                                f"*{s['snippet']}*\n"
+                                f"---"
                             )
 
 if __name__ == "__main__":
