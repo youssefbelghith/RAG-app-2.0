@@ -14,45 +14,52 @@ MODEL_NAME = "llama3"
 
 
 
-# SEGMENT 1 : INDEXATION (PDF & md)
+# SEGMENT 1 : INDEXATIONS (PDF & md)
 
 
-def build_vectorstore_from_file(uploaded_file):
-    if uploaded_file is None:
-        raise ValueError("No file provided.")
+def build_vectorstore_from_files(uploaded_files):
+    """Prend une liste de fichiers (PDF/MD), extrait et fusionne tous leurs morceaux."""
+    if not uploaded_files:
+        raise ValueError("No files provided.")
     
-    nom_fichier = uploaded_file.name
-    extension = nom_fichier.split(".")[-1].lower()
+    tous_les_chunks = []
     
-    if extension not in ["pdf", "md"]:
-        raise ValueError("Unsupported file format. Please upload a PDF or Markdown (.md) file.")
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{extension}") as tmp:
-        tmp.write(uploaded_file.read())
-        tmp_path = tmp.name
-
-    if extension == "pdf":
-        loader = PyPDFLoader(tmp_path)    
-    elif extension == "md":
-        loader = UnstructuredMarkdownLoader(tmp_path)
+    for uploaded_file in uploaded_files:
+        nom_fichier = uploaded_file.name
+        extension = nom_fichier.split(".")[-1].lower()
         
-    docs = loader.load()
+        if extension not in ["pdf", "md"]:
+            st.warning(f"⚠️ Format ignoré pour le fichier {nom_fichier} (uniquement PDF et MD).")
+            continue
 
-    if not docs:
-        raise ValueError(f"Could not extract any text from the {extension.upper()} file.")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{extension}") as tmp:
+            tmp.write(uploaded_file.read())
+            tmp_path = tmp.name
+
+        if extension == "pdf":
+            loader = PyPDFLoader(tmp_path)    
+        elif extension == "md":
+            loader = UnstructuredMarkdownLoader(tmp_path)
+            
+        docs = loader.load()
+        if not docs:
+            continue
+            
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=800,
+            chunk_overlap=150,
+            add_start_index=True,
+        )
+        chunks = splitter.split_documents(docs)
         
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=150,
-        add_start_index=True,
-    )
-    chunks = splitter.split_documents(docs)
+        tous_les_chunks.extend(chunks)
 
-    if not chunks:
-        raise ValueError("Chunking produced no chunks. Check file content.")
+    if not tous_les_chunks:
+        raise ValueError("No chunks could be extracted from any of the uploaded files.")
     
     vectordb = Chroma.from_documents(
-        documents=chunks,
+        documents=tous_les_chunks,
         embedding=get_embeddings(),
     )
     return vectordb
@@ -162,24 +169,24 @@ def main():
         uploaded_file = st.file_uploader(
             "Upload a PDF/md file",
             type=["pdf", "md"],
-            help="Keep it small"
+            accept_multiple_files=True,
+            help="select all files needed"
         )
 
-        if st.button("⚙️ Process file"):
-            if uploaded_file is None:
-                st.warning("Please upload a file first.")
+        if st.button("⚙️ Process Documents"):
+            if not uploaded_file: 
+                st.warning("Please upload at least one file first.")
             else:
                 try:
-                    with st.spinner("Reading, chunking, and embedding your PDF..."):
-                        # Appel direct du Segment 1
-                        vectordb = build_vectorstore_from_file(uploaded_file)
+                    with st.spinner("Reading, chunking, and embedding all your files..."):
+                        vectordb = build_vectorstore_from_files(uploaded_file)
                         st.session_state.vectordb = vectordb
-                    st.success("PDF processed! You can start asking questions.")
+                    st.success(f"🎉 {len(uploaded_file)} files processed together! You can ask questions.")
                 except Exception as e:
-                    st.error(f"ERROR while processing file: {e}")
+                    st.error(f"ERROR while processing files: {e}")
 
         if st.session_state.vectordb is None:
-            st.info("Upload a file and click **process file** to get started")
+            st.info("Upload documents and click **process documents** to get started")
         
         st.markdown("---")
         st.subheader("Example questions")
