@@ -54,8 +54,6 @@ def build_vectorstore_from_files(uploaded_files):
         )
         chunks = splitter.split_documents(docs)
         
-        # --- CORRECTION ICI ---
-        # Pour chaque morceau découpé, on force la métadonnée 'source' à prendre le vrai nom
         for chunk in chunks:
             chunk.metadata["source"] = vrai_nom_fichier
         
