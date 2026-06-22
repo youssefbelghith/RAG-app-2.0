@@ -176,7 +176,7 @@ def main():
                         st.session_state.vectordb = vectordb
                     st.success("PDF processed! You can start asking questions.")
                 except Exception as e:
-                    st.error(f"ERROR while processing pdf: {e}")
+                    st.error(f"ERROR while processing file: {e}")
 
         if st.session_state.vectordb is None:
             st.info("Upload a file and click **process file** to get started")
@@ -191,7 +191,7 @@ def main():
     with col_right:
         st.subheader("Ask Questions About Your PDF")
         if st.session_state.vectordb is None:
-            st.warning("No PDF processed yet. Upload and process a file on the left.") 
+            st.warning("No file processed yet. Upload and process a file on the left.") 
             return
             
         question = st.text_input(
